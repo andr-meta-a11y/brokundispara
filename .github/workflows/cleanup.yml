@@ -1,0 +1,52 @@
+name: Auto Cleanup Files and History
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # প্রতি ৫ মিনিট পর পর চলবে
+  workflow_dispatch:
+
+permissions:
+  contents: write  # পুশ করার পারমিশন
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository with History
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # পুরো হিস্ট্রি আনবে যাতে ফাইলের আসল বয়স জানা যায়
+
+      - name: Setup Git Config
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Delete Files Older Than 5 Minutes
+        run: |
+          now=$(date +%s)
+
+          # রিপোজিটরির সব ট্র্যাক করা ফাইল চেক করবে
+          git ls-files | while read -r file; do
+            # এই স্ক্রিপ্ট এবং .github ফোল্ডারের ফাইল বাদ রাখবে
+            if [[ "$file" == .github/* ]]; then
+              continue
+            fi
+
+            # ফাইলের আসল কমিট টাইম বের করা (Unix timestamp)
+            commit_time=$(git log -1 --format="%ct" -- "$file")
+
+            if [ -n "$commit_time" ]; then
+              age=$(( now - commit_time ))
+              # ৩০০ সেকেন্ড = ৫ মিনিট
+              if [ $age -ge 300 ]; then
+                echo "Deleting: $file (Age: $age seconds)"
+                git rm -f "$file"
+              fi
+            fi
+          done
+
+      - name: Commit and Push
+        run: |
+          git commit -m "Auto cleaned files older than 5 minutes" || exit 0
+          git push
